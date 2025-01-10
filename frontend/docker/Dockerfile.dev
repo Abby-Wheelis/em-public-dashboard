@@ -1,9 +1,0 @@
-FROM node:21.5.0-alpine
-
-RUN mkdir -p /public
-WORKDIR /public
-
-RUN npm i -g http-server
-
-EXPOSE 6060
-CMD ["http-server", "-p", "6060"]
