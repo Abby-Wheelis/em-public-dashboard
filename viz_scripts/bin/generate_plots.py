@@ -7,7 +7,8 @@ import requests
 import json
 import os
 import sys
-
+import asyncio
+import emcommon.util as emcu
 
 # Configuration settings to use for all generated plots by this instance
 # This could also be specified as a parser argument, if we want to generate plots for all programs from one instance
@@ -34,12 +35,40 @@ else:
     dynamic_config = json.loads(r.text)
     print(f"Successfully downloaded config with version {dynamic_config['version']} "\
         f"for {dynamic_config['intro']['translated_text']['en']['deployment_name']} "\
-        f"and data collection URL {dynamic_config['server']['connectUrl']}")
+        f"and data collection URL {dynamic_config['server']['connectUrl'] if 'server' in dynamic_config else 'default'}")
 
 if dynamic_config['intro']['program_or_study'] == 'program':
     mode_studied = dynamic_config['intro']['mode_studied']
 else:
     mode_studied = None
+
+# dynamic_labels can  be referenced from 
+# https://github.com/e-mission/nrel-openpath-deploy-configs/blob/main/label_options/example-study-label-options.json
+labels = { }
+
+async def load_default_label_options():
+    labels = await emcu.read_json_resource("label-options.default.json")
+    return labels
+
+# Check if the dynamic config contains dynamic labels 'label_options'
+# Parse through the dynamic_labels_url:
+if 'label_options' in dynamic_config:
+    dynamic_labels_url = dynamic_config['label_options']
+
+    req = requests.get(dynamic_labels_url)
+    if req.status_code != 200:
+        print(f"Unable to download dynamic_labels_url, status code: {req.status_code} for {STUDY_CONFIG}")
+    else:
+        labels = json.loads(req.text)
+        print(f"Dynamic labels download was successful for nrel-openpath-deploy-configs: {STUDY_CONFIG}" )
+else:
+    # load default labels from e-mission-common
+    # https://raw.githubusercontent.com/JGreenlee/e-mission-common/refs/heads/master/src/emcommon/resources/label-options.default.json
+    labels = asyncio.run(load_default_label_options())
+    if not labels:
+        print(f"Unable to load labels for : {STUDY_CONFIG}")
+    else:
+        print(f"Labels loading was successful for nrel-openpath-deploy-configs: {STUDY_CONFIG}")
 
 if args.date is None:
     start_date = arrow.get(int(dynamic_config['intro']['start_year']),
@@ -70,7 +99,12 @@ def compute_for_date(month, year):
         study_type=dynamic_config['intro']['program_or_study'],
         mode_of_interest=mode_studied,
         include_test_users=dynamic_config.get('metrics', {}).get('include_test_users', False),
-        sensed_algo_prefix=dynamic_config.get('metrics', {}).get('sensed_algo_prefix', "cleaned"))
+        labels = labels,
+        use_imperial = dynamic_config.get('display_config', {}).get('use_imperial', True),
+        sensed_algo_prefix=dynamic_config.get('metrics', {}).get('sensed_algo_prefix', "cleaned"),
+        bluetooth_only = dynamic_config.get('tracking', {}).get('bluetooth_only', False),
+        survey_info = dynamic_config.get('survey_info', {}),
+        )
 
     print(f"Running at {arrow.get()} with params {params}")
 
